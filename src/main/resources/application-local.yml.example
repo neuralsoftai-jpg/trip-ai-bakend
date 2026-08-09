@@ -1,0 +1,20 @@
+# ════════════════════════════════════════════════════════════════
+#  LOCAL DEVELOPMENT OVERRIDES — application-local.yml
+#  ⚠️  This file is git-ignored. DO NOT commit this file.
+#      Copy this template, fill in your real keys, and save it
+#      as "application-local.yml" in src/main/resources/
+# ════════════════════════════════════════════════════════════════
+#
+#  How to use:
+#  Run Spring Boot with: --spring.profiles.active=local
+#  OR set env vars: OWM_API_KEY, GEMINI_API_KEY before running
+
+api:
+  openweathermap:
+    api-key: YOUR_OPENWEATHERMAP_API_KEY_HERE
+    # Free key: https://openweathermap.org/api → One Call API 3.0
+
+  gemini:
+    api-key: YOUR_GEMINI_API_KEY_HERE
+    # Free key: https://aistudio.google.com/app/apikey
+    # Note: Free tier has rate limits (15 req/min, 1M tokens/day)

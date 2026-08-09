@@ -1,0 +1,15 @@
+# Railway.app Deployment Configuration
+# ─────────────────────────────────────
+# This file tells Railway how to build and run the Spring Boot backend.
+# Place this file in the project ROOT directory.
+
+[build]
+builder = "nixpacks"
+buildCommand = "./mvnw package -DskipTests"
+
+[deploy]
+startCommand = "java -Dserver.port=$PORT -jar target/trip-planner-1.0.0.jar"
+healthcheckPath = "/api/v1/trip/health"
+healthcheckTimeout = 300
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3

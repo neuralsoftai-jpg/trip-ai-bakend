@@ -1,0 +1,169 @@
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║          AI TRIP PLANNER — APPLICATION CONFIGURATION            ║
+# ║   Replace all YOUR_*_HERE placeholders before running           ║
+# ╚══════════════════════════════════════════════════════════════════╝
+
+server:
+  port: 8080
+  # Compress responses > 2KB — saves bandwidth on JSON/PDF responses
+  compression:
+    enabled: true
+    mime-types: application/json,application/pdf,text/plain
+    min-response-size: 2048
+
+spring:
+  application:
+    name: ai-trip-planner
+
+  # ─────────────────────────────────────────────────────────────────
+  # REDIS CONFIGURATION
+  # ─────────────────────────────────────────────────────────────────
+  # WHY: We use RedisTemplate (not Spring Cache abstraction) for full
+  #      control over key naming, TTL per-key, and serialization format.
+  # For Docker: docker run -d -p 6379:6379 redis:7-alpine
+  # ─────────────────────────────────────────────────────────────────
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      # password: ${REDIS_PASSWORD:}   # Uncomment for Redis AUTH
+      timeout: 2000ms                   # Connection timeout; fail fast
+      lettuce:
+        pool:
+          max-active: 16                # Max concurrent Redis connections
+          max-idle: 8
+          min-idle: 2
+          max-wait: 1000ms
+
+  # Jackson global settings
+  jackson:
+    default-property-inclusion: NON_NULL
+    serialization:
+      write-dates-as-timestamps: false
+    deserialization:
+      fail-on-unknown-properties: false
+
+# ─────────────────────────────────────────────────────────────────
+# ASYNC THREAD POOL (CompletableFuture)
+# ─────────────────────────────────────────────────────────────────
+# WHY: We run 3 external API calls in parallel for the dashboard.
+#      Without a custom executor, they all share the common fork-join
+#      pool which is sized to CPU cores — terrible for I/O-bound tasks.
+# ─────────────────────────────────────────────────────────────────
+async:
+  core-pool-size: 10
+  max-pool-size: 50
+  queue-capacity: 100
+  thread-name-prefix: "trip-async-"
+
+# ─────────────────────────────────────────────────────────────────
+# EXTERNAL API CONFIGURATION
+# ─────────────────────────────────────────────────────────────────
+# ⚠️  NEVER hardcode API keys here — always use environment variables!
+#    Local dev: set them in application-local.yml (excluded from git)
+#    Production: set them in Railway/Render/Vercel dashboard
+# ─────────────────────────────────────────────────────────────────
+api:
+  # OpenWeatherMap — Get a free key at https://openweathermap.org/api
+  openweathermap:
+    base-url: https://api.openweathermap.org/data/2.5
+    api-key: ${OWM_API_KEY:your_openweathermap_api_key_here}
+
+  # Google Gemini — Get key at https://aistudio.google.com/app/apikey
+  gemini:
+    base-url: https://generativelanguage.googleapis.com/v1beta/models
+    model: gemini-2.0-flash-lite
+    api-key: ${GEMINI_API_KEY:your_gemini_api_key_here}
+
+  # OSRM — Free public routing engine. For production, self-host:
+  # https://hub.docker.com/r/osrm/osrm-backend
+  osrm:
+    base-url: ${OSRM_BASE_URL:https://router.project-osrm.org}
+
+  # Geocoding — Used to convert city names to lat/lon for OSRM
+  # We use OpenWeatherMap's geocoding (same API key, no extra cost)
+  geocoding:
+    base-url: https://api.openweathermap.org/geo/1.0
+
+# ─────────────────────────────────────────────────────────────────
+# RATE LIMITING (Bucket4j)
+# ─────────────────────────────────────────────────────────────────
+rate-limit:
+  capacity: 10            # Max tokens in bucket (burst limit)
+  refill-tokens: 10       # Tokens added per refill period
+  refill-period-minutes: 1
+
+# ─────────────────────────────────────────────────────────────────
+# CACHE TTL (seconds)
+# ─────────────────────────────────────────────────────────────────
+cache:
+  ttl:
+    dashboard: 10800        # 3 hours
+    packing: 10800          # 3 hours
+    route: 10800            # 3 hours
+    carbon: 21600           # 6 hours (pure calculation, rarely changes)
+    budget: 10800           # 3 hours
+    emergency: 43200        # 12 hours (emergency numbers rarely change)
+
+# ─────────────────────────────────────────────────────────────────
+# FUEL CALCULATION CONSTANTS
+# ─────────────────────────────────────────────────────────────────
+fuel:
+  price-per-litre: 106.0   # INR — update as petrol prices change
+  mileage:
+    petrol_car: 15.0        # km/litre
+    diesel_car: 18.0        # km/litre
+    electric_car: 0.0       # No fuel cost (handled separately)
+    bike: 40.0              # km/litre
+    electric_bike: 0.0
+
+# ─────────────────────────────────────────────────────────────────
+# CARBON EMISSION FACTORS (kg CO2 per km)
+# Source: IPCC Transport Emission Factors
+# ─────────────────────────────────────────────────────────────────
+carbon:
+  emission-factors:
+    petrol_car: 0.192
+    diesel_car: 0.171
+    electric_car: 0.053     # Grid emissions (India average)
+    bike: 0.103
+    electric_bike: 0.022
+
+# ─────────────────────────────────────────────────────────────────
+# RESILIENCE4J — CIRCUIT BREAKER CONFIGURATION
+# ─────────────────────────────────────────────────────────────────
+# WHY: Each external API (Weather, OSRM, Gemini) gets its own
+#      circuit breaker with independent thresholds. One failing
+#      API does NOT open another API's circuit.
+# ─────────────────────────────────────────────────────────────────
+resilience4j:
+  circuitbreaker:
+    instances:
+      osrmClient:
+        sliding-window-size: 10
+        failure-rate-threshold: 80          # Open only if 80% of last 10 calls fail
+        wait-duration-in-open-state: 3s     # Quick 3s retry
+        permitted-number-of-calls-in-half-open-state: 3
+        slow-call-duration-threshold: 12s   # Mark as slow only if > 12s
+        slow-call-rate-threshold: 90
+      weatherClient:
+        sliding-window-size: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+      geminiClient:
+        sliding-window-size: 10
+        failure-rate-threshold: 60          # Gemini is paid, be more tolerant
+        wait-duration-in-open-state: 60s    # Longer recovery time for AI APIs
+        permitted-number-of-calls-in-half-open-state: 2
+
+# ─────────────────────────────────────────────────────────────────
+# LOGGING
+# ─────────────────────────────────────────────────────────────────
+logging:
+  level:
+    com.tripplanner: DEBUG
+    io.github.resilience4j: INFO
+    org.springframework.data.redis: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"

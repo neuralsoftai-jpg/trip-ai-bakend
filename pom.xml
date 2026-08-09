@@ -1,0 +1,356 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+    ╔══════════════════════════════════════════════════════════════════╗
+    ║         AI TRIP PLANNER — SPRING BOOT 3 BACKEND                 ║
+    ║   Production-Ready | Stateless | Redis Cached | Circuit-Broken  ║
+    ╚══════════════════════════════════════════════════════════════════╝
+
+    SPRING BOOT PARENT — 10-POINT EXPLANATION
+    ─────────────────────────────────────────
+    1. WHY:      Provides curated dependency management (BOM) so you never
+                 manually worry about version conflicts between 100+ libs.
+    2. PROBLEM:  Without it, every lib version must be hand-matched. Spring
+                 Data, Jackson, Tomcat etc must be compatible — manually.
+    3. AFTER:    Single version bump (e.g., 3.2.5 → 3.3.0) upgrades all
+                 managed transitive deps correctly.
+    4. WITHOUT:  "Dependency hell" — runtime ClassNotFoundException from
+                 incompatible versions. Extremely common in pre-Boot projects.
+    5. PROS:     Zero version conflicts, auto-config, fat-jar support.
+       CONS:     Slight opinionation — sometimes forces a lib version.
+    6. LEVEL:    Absolutely production-level. Used in every serious project.
+    7. MODERN:   Spring Boot 3.x IS the modern alternative to 2.x. Uses
+                 Jakarta EE 10 namespace (not javax.*).
+    8. BEST:     Spring Boot 3.x + Java 17 is the sweet spot for performance,
+                 virtual threads (Project Loom), and security patches.
+    9. INDUSTRY: Used by Netflix, Amazon, Grab, Flipkart, Razorpay, Zomato.
+   10. MISTAKES: Using Spring Boot 2.x with Java 17 — partial support only.
+                 Not pinning exact version in CI/CD — leads to surprise upgrades.
+    -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.2.5</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.tripplanner</groupId>
+    <artifactId>trip-planner</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+    <name>AI Trip Planner Backend</name>
+    <description>
+        Production-ready stateless backend: Data Aggregator + AI Orchestrator
+        for an AI-powered trip planning application.
+    </description>
+
+    <properties>
+        <java.version>21</java.version>
+        <!--
+            RESILIENCE4J VERSION — 10-POINT EXPLANATION
+            ────────────────────────────────────────────
+            1. WHY:      Provides circuit breaker, retry, rate limiter, bulkhead
+                         — all annotation-driven via AOP.
+            2. PROBLEM:  External APIs (Weather, Gemini, OSRM) WILL fail under
+                         load. Without circuit breaker, one failed API cascades
+                         into a full 500 response for ALL users.
+            3. AFTER:    After N failures, the circuit "opens" — further calls
+                         go straight to fallback (fast fail). Circuit "closes"
+                         again when the API recovers.
+            4. WITHOUT:  Thread pool starvation. All threads hang waiting for
+                         a dead external API → your app also dies.
+            5. PROS:     Annotation-driven, Micrometer metrics built-in, zero
+                         boilerplate, supports both reactive and imperative.
+               CONS:     Slightly complex config for fine-tuning thresholds.
+            6. LEVEL:    Production-level. Netflix Hystrix is now deprecated.
+            7. MODERN:   Resilience4j IS the modern replacement for Hystrix.
+            8. BEST:     Resilience4j 2.x + Spring Boot 3.x is the current
+                         industry gold standard for fault tolerance.
+            9. INDUSTRY: Used by Shopify, Airbnb, N26, Deutsche Bank backends.
+           10. MISTAKES: Forgetting spring-boot-starter-aop — circuit breaker
+                         annotations silently do nothing without AOP proxy.
+        -->
+        <resilience4j.version>2.2.0</resilience4j.version>
+    </properties>
+
+    <dependencies>
+
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <!--  CORE WEB                                                   -->
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+            <!--
+                WEB STARTER — 10-POINT EXPLANATION
+                ────────────────────────────────────
+                1. WHY:      Bundles embedded Tomcat, Spring MVC, Jackson JSON.
+                2. PROBLEM:  Serving HTTP without a container requires complex
+                             server bootstrapping.
+                3. AFTER:    App starts as a fat-jar with embedded Tomcat on
+                             port 8080. No external server needed.
+                4. WITHOUT:  Need to deploy WAR to external Tomcat/JBoss.
+                5. PROS:     Self-contained, cloud-native, Docker-friendly.
+                   CONS:     Tomcat is heavier than Netty for pure reactive.
+                6. LEVEL:    Production-level.
+                7. MODERN:   For reactive, use spring-boot-starter-webflux.
+                             We use MVC here because our CompletableFuture
+                             pattern is imperative (simpler to reason about).
+                8. BEST:     MVC + CompletableFuture = simple, performant,
+                             debuggable. WebFlux = better for 10k+ concurrent
+                             streams but harder to debug.
+                9. INDUSTRY: Default choice at 90% of companies.
+               10. MISTAKES: Mixing @Controller and @RestController without
+                             @ResponseBody — breaks JSON serialization.
+            -->
+        </dependency>
+
+        <!-- Bean Validation: @NotNull, @NotBlank on request DTOs -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+
+        <!-- AOP — REQUIRED for Resilience4j annotations to work -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
+        </dependency>
+
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <!--  REDIS CACHING                                              -->
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+            <!--
+                REDIS STARTER — 10-POINT EXPLANATION
+                ──────────────────────────────────────
+                1. WHY:      External APIs (OWM, Gemini) are slow (200–2000ms)
+                             and rate-limited. Redis caches responses in <1ms.
+                2. PROBLEM:  Hitting Gemini API for every request is expensive
+                             ($$$) and slow. Same city→same vibe every time.
+                3. AFTER:    Cache HIT serves 90%+ of repeat requests in <5ms.
+                             Cache MISS goes to API, then stores in Redis.
+                4. WITHOUT:  Every request hits external APIs. Latency: 2-5s.
+                             Also risk hitting API quotas and paying more.
+                5. PROS:     Microsecond latency, TTL support, atomic ops,
+                             distributed (shared across multiple app instances).
+                   CONS:     Extra infrastructure dependency (Redis server).
+                6. LEVEL:    Production-level. In-memory caching (Caffeine)
+                             is only suitable for single-instance apps.
+                7. MODERN:   Redis 7.x with RedisJSON and RediSearch modules
+                             is the modern choice. We use plain Redis strings.
+                8. BEST:     Redis > Memcached for TTL, data structures, and
+                             persistence options.
+                9. INDUSTRY: Uber, Twitter, GitHub, Snapchat all use Redis
+                             as their primary caching layer.
+               10. MISTAKES: Storing Java objects without a proper serializer
+                             (default Java serialization = unreadable binary,
+                             breaks if class changes). We use Jackson JSON.
+            -->
+        </dependency>
+
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <!--  RATE LIMITING                                              -->
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <dependency>
+            <groupId>com.bucket4j</groupId>
+            <artifactId>bucket4j-core</artifactId>
+            <version>8.10.1</version>
+            <!--
+                BUCKET4J — 10-POINT EXPLANATION
+                ────────────────────────────────
+                1. WHY:      Prevents abuse — one user cannot flood the server
+                             with 1000 requests/sec and starve other users.
+                2. PROBLEM:  Public APIs without rate limiting are trivially
+                             DoS-able. Also, Gemini API has quota limits.
+                3. AFTER:    Each IP gets a token bucket: 10 tokens, refills
+                             10/min. Once empty → HTTP 429 returned instantly.
+                4. WITHOUT:  A single angry user (or bot) can exhaust your
+                             Gemini quota in seconds, locking everyone out.
+                5. PROS:     Token bucket algorithm is smooth (no sharp cliff),
+                             thread-safe, and works with Redis for distributed.
+                   CONS:     Requires Redis for multi-instance deployments.
+                6. LEVEL:    Production-level.
+                7. MODERN:   Bucket4j 8.x is the current standard.
+                             Spring Cloud Gateway also has built-in limiting —
+                             but that's for API Gateways, not embedded apps.
+                8. BEST:     Bucket4j + Redis for distributed, Bucket4j +
+                             ConcurrentHashMap for single-node.
+                9. INDUSTRY: Used by Twilio, SendGrid, and many fintech APIs.
+               10. MISTAKES: Using @RateLimiter from Resilience4j — it's
+                             per-instance, not per-IP. Bucket4j per-key is
+                             the correct approach for IP-based limiting.
+            -->
+        </dependency>
+
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <!--  RESILIENCE4J — CIRCUIT BREAKER                            -->
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-spring-boot3</artifactId>
+            <version>${resilience4j.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-circuitbreaker</artifactId>
+            <version>${resilience4j.version}</version>
+        </dependency>
+
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <!--  PDF GENERATION                                             -->
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <dependency>
+            <groupId>com.github.librepdf</groupId>
+            <artifactId>openpdf</artifactId>
+            <version>1.3.43</version>
+            <!--
+                OPENPDF — 10-POINT EXPLANATION
+                ────────────────────────────────
+                1. WHY:      Server-side PDF generation for downloadable trip
+                             plans without any frontend JS dependency.
+                2. PROBLEM:  PDF cannot be generated reliably in the browser
+                             for complex layouts. Server-side is more reliable.
+                3. AFTER:    Service returns byte[] which Spring streams as
+                             application/pdf for direct browser download.
+                4. WITHOUT:  Would need to depend on a paid 3rd-party PDF
+                             service or ask frontend to do it (fragile).
+                5. PROS:     Free (LGPL), actively maintained fork of iText 2,
+                             simple API, supports tables, fonts, images.
+                   CONS:     Limited compared to iText 7 or Apache FOP for
+                             extremely complex layouts.
+                6. LEVEL:    Production-level for document-style reports.
+                7. MODERN:   Alternatives: Apache PDFBox (low-level, complex),
+                             iText 7 (powerful but AGPL — commercial license
+                             required for closed-source apps).
+                8. BEST:     OpenPDF for simple reports (our case).
+                             iText 7 for pixel-perfect PDF/A compliance.
+                9. INDUSTRY: Used in government portals, invoice systems,
+                             insurance backends.
+               10. MISTAKES: Using iText 5 (abandoned) or the old iText
+                             artifactId com.itextpdf (AGPL — legal risk).
+            -->
+        </dependency>
+
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <!--  DEVELOPER PRODUCTIVITY                                     -->
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <version>1.18.38</version>
+            <optional>true</optional>
+            <!--
+                LOMBOK — 10-POINT EXPLANATION
+                ──────────────────────────────
+                1. WHY:      Eliminates boilerplate: getters, setters,
+                             constructors, builders, toString, equals/hashCode.
+                2. PROBLEM:  Java DTOs with 10 fields need 80+ lines of
+                             boilerplate, making files hard to read and review.
+                3. AFTER:    A 10-field DTO becomes 15 lines with annotations.
+                4. WITHOUT:  Verbose, hard-to-read code. More lines = more bugs.
+                5. PROS:     Massive reduction in code size.
+                   CONS:     Requires IDE plugin. Can hide bugs in equals/hashCode.
+                             Does NOT work with Java records (redundant).
+                6. LEVEL:    Production-level. Used at most companies.
+                7. MODERN:   Java Records (Java 16+) are a modern alternative
+                             for immutable DTOs. We use both: records for
+                             response objects, Lombok for mutable/builder DTOs.
+                8. BEST:     Use Java Records for pure DTOs. Use Lombok
+                             @Builder for complex service objects.
+                9. INDUSTRY: Used at Google, Uber, Amazon Java teams.
+               10. MISTAKES: Forgetting IDE plugin → red underlines everywhere.
+                             Using @Data on JPA entities → infinite recursion
+                             in equals/hashCode with bidirectional relations.
+            -->
+        </dependency>
+
+        <!-- Jackson for JSON (already pulled by web starter, explicit for clarity) -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <!--  TESTING                                                    -->
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+    </dependencies>
+
+    <build>
+        <plugins>
+
+            <!--
+                MAVEN COMPILER PLUGIN — 10-POINT EXPLANATION
+                ─────────────────────────────────────────────
+                1. WHY:      JDK 21+ no longer auto-discovers annotation processors
+                             via the classpath. Lombok MUST be declared explicitly
+                             in <annotationProcessorPaths> to generate @Data, @Builder,
+                             @Slf4j etc. Without this, all Lombok symbols are missing.
+                2. PROBLEM:  "cannot find symbol: method getX()" errors on every DTO.
+                3. AFTER:    javac calls Lombok's annotation processor first, generating
+                             getters/setters/builders/log fields before compilation.
+                4. WITHOUT:  Build fails with 100+ "cannot find symbol" errors.
+                5. PROS:     Explicit declaration = reproducible, no classpath leaks.
+                   CONS:     Slightly more verbose pom.xml.
+                6. LEVEL:    Production-level. Required for any JDK 21+ + Lombok project.
+                7. MODERN:   Java Records are the modern alternative for immutable DTOs.
+                             Lombok still needed for @Builder, @Slf4j, @RequiredArgsConstructor.
+                8. BEST:     Declare Lombok in annotationProcessorPaths — not just as a
+                             dependency. The difference matters for JDK 21+.
+                9. INDUSTRY: Standard pattern in all modern Spring Boot 3.x projects.
+               10. MISTAKES: Putting Lombok only in <dependencies> (works in JDK 8-17,
+                             breaks silently in JDK 21+). Always use annotationProcessorPaths.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
+                <configuration>
+                    <release>21</release>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <!--
+                                Lombok 1.18.36+ required for JDK 21+ support.
+                                Spring Boot BOM 3.2.5 resolves 1.18.32 which breaks
+                                with TypeTag::UNKNOWN. Must be explicitly overridden here.
+                            -->
+                            <version>1.18.38</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <!-- Excludes Lombok from the final fat-jar (compile-time only) -->
+                    <excludes>
+                        <exclude>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+
+        </plugins>
+    </build>
+
+</project>
