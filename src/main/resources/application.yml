@@ -16,6 +16,20 @@ spring:
     name: ai-trip-planner
 
   # ─────────────────────────────────────────────────────────────────
+  # DISABLE DATABASE AUTO-CONFIGURATION
+  # WHY: This project is 100% stateless — no database, no JPA.
+  #      Cloud providers (Render, Railway) inject DATABASE_URL env var
+  #      automatically which tricks Spring Boot into trying to connect
+  #      to a database via Hibernate. We explicitly exclude it to
+  #      prevent startup failures in cloud deployments.
+  # ─────────────────────────────────────────────────────────────────
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.jpa.JpaRepositoriesAutoConfiguration
+
+  # ─────────────────────────────────────────────────────────────────
   # REDIS CONFIGURATION
   # ─────────────────────────────────────────────────────────────────
   # WHY: We use RedisTemplate (not Spring Cache abstraction) for full
