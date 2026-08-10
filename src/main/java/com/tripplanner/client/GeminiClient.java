@@ -627,15 +627,51 @@ public class GeminiClient {
               ],
               "placesDetail": [
                 {
-                  "name": "Famous City Landmark & Square",
-                  "description": "The central landmark of {DEST}, celebrated for architecture, photo opportunities, and vibrant foot traffic.",
+                  "name": "Famous City Landmark & Main Square",
+                  "description": "The iconic central landmark of {DEST}, celebrated for historic architecture, photo opportunities, and vibrant foot traffic.",
                   "rating": 4.8,
-                  "distance": "1.0 km",
+                  "distance": "1.0 km away",
                   "hours": "Open 24 hours",
                   "duration": "1 - 2 hours",
                   "bestTime": "Sunset / Evening",
-                  "mapsLink": "https://google.com/maps",
+                  "mapsLink": "https://www.google.com/maps",
                   "category": "Landmark",
+                  "verified": true
+                },
+                {
+                  "name": "Historic Heritage Fort & Palace Museum",
+                  "description": "A magnificent royal fort and heritage museum showcasing royal artifacts, panoramic city views, and architectural grandeur.",
+                  "rating": 4.9,
+                  "distance": "3.2 km away",
+                  "hours": "9:00 AM - 6:00 PM",
+                  "duration": "2 - 3 hours",
+                  "bestTime": "Morning (9:30 AM)",
+                  "mapsLink": "https://www.google.com/maps",
+                  "category": "Historical",
+                  "verified": true
+                },
+                {
+                  "name": "Scenic Riverfront Promenade & Botanical Park",
+                  "description": "A peaceful green waterfront park featuring walking trails, lush gardens, musical fountains, and evening boat rides.",
+                  "rating": 4.7,
+                  "distance": "2.5 km away",
+                  "hours": "6:00 AM - 9:00 PM",
+                  "duration": "1 - 2 hours",
+                  "bestTime": "Evening (5:30 PM)",
+                  "mapsLink": "https://www.google.com/maps",
+                  "category": "Nature & Park",
+                  "verified": true
+                },
+                {
+                  "name": "Cultural Crafts Village & Artisan Center",
+                  "description": "An interactive cultural hub celebrating local folk music, traditional dance, handmade pottery, and authentic handicraft shopping.",
+                  "rating": 4.6,
+                  "distance": "4.0 km away",
+                  "hours": "11:00 AM - 10:00 PM",
+                  "duration": "2 - 4 hours",
+                  "bestTime": "Night (7:00 PM)",
+                  "mapsLink": "https://www.google.com/maps",
+                  "category": "Culture",
                   "verified": true
                 }
               ],

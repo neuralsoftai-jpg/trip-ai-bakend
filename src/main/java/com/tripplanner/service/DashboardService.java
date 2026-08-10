@@ -451,16 +451,16 @@ public class DashboardService {
                     .localTips(parseStringList(node.get("localTips")))
                     .mustVisitPlaces(parseStringList(node.get("mustVisitPlaces")))
                     .safetyRating(node.path("safetyRating").asText("Please check local advisories"))
-                    .foodPlaces(parseMapList(node.get("foodPlaces")))
-                    .hotelPlaces(parseMapList(node.get("hotelPlaces")))
-                    .activityPlaces(parseMapList(node.get("activityPlaces")))
-                    .musicPlaces(parseMapList(node.get("musicPlaces")))
+                    .foodPlaces(parseMapList(node.get("foodPlaces"), destination))
+                    .hotelPlaces(parseMapList(node.get("hotelPlaces"), destination))
+                    .activityPlaces(parseMapList(node.get("activityPlaces"), destination))
+                    .musicPlaces(parseMapList(node.get("musicPlaces"), destination))
                     .languageInfo(parseMap(node.get("languageInfo")))
-                    .rulesInfo(parseMapList(node.get("rulesInfo")))
-                    .placesDetail(parseMapList(node.get("placesDetail")))
+                    .rulesInfo(parseMapList(node.get("rulesInfo"), destination))
+                    .placesDetail(parseMapList(node.get("placesDetail"), destination))
                     .bestTimeInfo(parseMap(node.get("bestTimeInfo")))
-                    .marketsInfo(parseMapList(node.get("marketsInfo")))
-                    .tipsInfo(parseMapList(node.get("tipsInfo")))
+                    .marketsInfo(parseMapList(node.get("marketsInfo"), destination))
+                    .tipsInfo(parseMapList(node.get("tipsInfo"), destination))
                     .isFallback(false)
                     .build();
         } catch (Exception e) {
@@ -474,11 +474,26 @@ public class DashboardService {
     }
 
     @SuppressWarnings("unchecked")
-    private List<Map<String, Object>> parseMapList(JsonNode node) {
+    private List<Map<String, Object>> parseMapList(JsonNode node, String destination) {
         if (node == null || !node.isArray()) return List.of();
         try {
-            return objectMapper.convertValue(node,
+            List<Map<String, Object>> list = objectMapper.convertValue(node,
                     objectMapper.getTypeFactory().constructCollectionType(List.class, Map.class));
+            
+            // Format exact Google Maps search URLs for all locations
+            for (Map<String, Object> item : list) {
+                if (item != null) {
+                    Object nameObj = item.get("name");
+                    if (nameObj != null) {
+                        String placeName = nameObj.toString().trim();
+                        String query = placeName + " " + (destination != null ? destination : "");
+                        String mapsUrl = "https://www.google.com/maps/search/?api=1&query="
+                                + java.net.URLEncoder.encode(query, java.nio.charset.StandardCharsets.UTF_8);
+                        item.put("mapsLink", mapsUrl);
+                    }
+                }
+            }
+            return list;
         } catch (Exception e) {
             return List.of();
         }
