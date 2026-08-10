@@ -201,14 +201,21 @@ public class DashboardService {
             }
         }
 
-        // OpenWeatherMap Forecast (using Destination City)
+        // OpenWeatherMap Forecast (using Destination Coordinates or City)
+        double destLat = req.getDestination().getLatitude();
+        double destLon = req.getDestination().getLongitude();
         String destCity = req.getDestination().getCity();
         if (destCity == null || destCity.isBlank()) {
             destCity = req.getDestination().getName();
         }
         final String finalDestCity = destCity;
+        final double finalDestLat = destLat;
+        final double finalDestLon = destLon;
+
         CompletableFuture<List<WeatherInfo>> weatherFuture = CompletableFuture.supplyAsync(
-                () -> weatherClient.getForecast(finalDestCity, req.getDays()),
+                () -> (finalDestLat != 0.0 && finalDestLon != 0.0)
+                        ? weatherClient.getForecastByCoords(finalDestLat, finalDestLon, req.getDays())
+                        : weatherClient.getForecast(finalDestCity, req.getDays()),
                 tripExecutor
         );
 
