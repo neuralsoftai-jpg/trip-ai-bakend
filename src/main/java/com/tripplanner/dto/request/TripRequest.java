@@ -1,24 +1,20 @@
 package com.tripplanner.dto.request;
 
+import com.tripplanner.dto.ResolvedLocation;
 import jakarta.validation.constraints.*;
 import lombok.Data;
 
 /**
  * Input DTO for POST /api/v1/trip/dashboard
- *
- * WHY @NotBlank vs @NotNull:
- *   @NotNull rejects null but allows "  " (blank string).
- *   @NotBlank rejects null, empty, and whitespace-only strings.
- *   Always use @NotBlank for String fields.
  */
 @Data
 public class TripRequest {
 
-    @NotBlank(message = "Source city is required")
-    private String source;
+    @NotNull(message = "Source location is required")
+    private ResolvedLocation source;
 
-    @NotBlank(message = "Destination city is required")
-    private String destination;
+    @NotNull(message = "Destination location is required")
+    private ResolvedLocation destination;
 
     @Min(value = 1, message = "Minimum trip duration is 1 day")
     @Max(value = 30, message = "Maximum trip duration is 30 days")
@@ -29,9 +25,9 @@ public class TripRequest {
     private int groupSize;
 
     /**
-     * Accepted values: petrol_car, diesel_car, electric_car, bike, electric_bike
-     * Validated against enum in service layer for clean error messages.
+     * Accepted values: petrol_car, diesel_car, electric_car, bike, electric_bike, flight
      */
     @NotBlank(message = "Vehicle type is required")
     private String vehicleType;
 }
+

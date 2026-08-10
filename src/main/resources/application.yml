@@ -81,13 +81,13 @@ api:
   # OpenWeatherMap — Get a free key at https://openweathermap.org/api
   openweathermap:
     base-url: https://api.openweathermap.org/data/2.5
-    api-key: ${OWM_API_KEY:your_openweathermap_api_key_here}
+    api-key: ${OPENWEATHER_API_KEY:YOUR_OPENWEATHER_API_KEY}
 
   # Google Gemini — Get key at https://aistudio.google.com/app/apikey
   gemini:
     base-url: https://generativelanguage.googleapis.com/v1beta/models
-    model: gemini-2.0-flash-lite
-    api-key: ${GEMINI_API_KEY:your_gemini_api_key_here}
+    model: ${GEMINI_MODEL:gemini-1.5-flash}
+    api-key: ${GEMINI_API_KEY:YOUR_GEMINI_API_KEY}
 
   # OSRM — Free public routing engine. For production, self-host:
   # https://hub.docker.com/r/osrm/osrm-backend
@@ -103,8 +103,8 @@ api:
 # RATE LIMITING (Bucket4j)
 # ─────────────────────────────────────────────────────────────────
 rate-limit:
-  capacity: 10            # Max tokens in bucket (burst limit)
-  refill-tokens: 10       # Tokens added per refill period
+  capacity: 100            # Max tokens in bucket (burst limit)
+  refill-tokens: 100       # Tokens added per refill period
   refill-period-minutes: 1
 
 # ─────────────────────────────────────────────────────────────────

@@ -251,6 +251,131 @@ public class EmergencyService {
     }
 
     private EmergencyResponse buildGenericResponse(EmergencyRequest req) {
+        String destLower = (req.getDestination() != null ? req.getDestination() : "").toLowerCase();
+
+        // 1. USA / Canada
+        if (destLower.contains("united states") || destLower.contains("usa") || destLower.contains("us") ||
+            destLower.contains("america") || destLower.contains("canada") || destLower.contains("new york") ||
+            destLower.contains("california") || destLower.contains("texas") || destLower.contains("florida")) {
+            return EmergencyResponse.builder()
+                    .destination(req.getDestination())
+                    .state(req.getState())
+                    .nationalEmergency("911")
+                    .policeNumber("911")
+                    .ambulanceNumber("911")
+                    .fireNumber("911")
+                    .womenHelplineNumber("1-800-799-7233")
+                    .childHelplineNumber("1-800-422-4453")
+                    .touristHelpline("1-888-407-4747")
+                    .roadAssistance("1-800-222-4357")
+                    .nearestHospitalName("Local Hospital / Urgent Care (Dial 911)")
+                    .nearestHospitalPhone("911")
+                    .nearestHospitalAddress("Search Google Maps or dial 911 for nearest ER")
+                    .localPoliceStation("US Police Dept (Dial 911)")
+                    .localPolicePhone("911")
+                    .dataSource("US National Helplines (911)")
+                    .isFallback(false)
+                    .build();
+        }
+
+        // 2. UK / Britain
+        if (destLower.contains("united kingdom") || destLower.contains("uk") || destLower.contains("london") ||
+            destLower.contains("england") || destLower.contains("scotland")) {
+            return EmergencyResponse.builder()
+                    .destination(req.getDestination())
+                    .state(req.getState())
+                    .nationalEmergency("999 / 112")
+                    .policeNumber("999")
+                    .ambulanceNumber("999")
+                    .fireNumber("999")
+                    .womenHelplineNumber("0808 2000 247")
+                    .childHelplineNumber("0800 1111")
+                    .touristHelpline("111 (NHS)")
+                    .roadAssistance("0800 88 77 66")
+                    .nearestHospitalName("NHS Hospital / A&E Department (Dial 999)")
+                    .nearestHospitalPhone("999")
+                    .nearestHospitalAddress("Nearest NHS A&E Center")
+                    .localPoliceStation("UK Local Police (Dial 999 or 101)")
+                    .localPolicePhone("999")
+                    .dataSource("UK National Helplines (999)")
+                    .isFallback(false)
+                    .build();
+        }
+
+        // 3. European Union (France, Germany, Italy, Spain, Switzerland, etc.)
+        if (destLower.contains("france") || destLower.contains("paris") || destLower.contains("germany") ||
+            destLower.contains("italy") || destLower.contains("spain") || destLower.contains("switzerland") ||
+            destLower.contains("europe") || destLower.contains("amsterdam")) {
+            return EmergencyResponse.builder()
+                    .destination(req.getDestination())
+                    .state(req.getState())
+                    .nationalEmergency("112")
+                    .policeNumber("112")
+                    .ambulanceNumber("112")
+                    .fireNumber("112")
+                    .womenHelplineNumber("112")
+                    .childHelplineNumber("116 111")
+                    .touristHelpline("112")
+                    .roadAssistance("112")
+                    .nearestHospitalName("Local Emergency Hospital (Dial 112)")
+                    .nearestHospitalPhone("112")
+                    .nearestHospitalAddress("Nearest Emergency Room / Hospital")
+                    .localPoliceStation("Local Police (Dial 112)")
+                    .localPolicePhone("112")
+                    .dataSource("EU Unified Emergency Helpline (112)")
+                    .isFallback(false)
+                    .build();
+        }
+
+        // 4. UAE (Dubai, Abu Dhabi)
+        if (destLower.contains("uae") || destLower.contains("dubai") || destLower.contains("abu dhabi") ||
+            destLower.contains("sharjah") || destLower.contains("emirates")) {
+            return EmergencyResponse.builder()
+                    .destination(req.getDestination())
+                    .state(req.getState())
+                    .nationalEmergency("999")
+                    .policeNumber("999")
+                    .ambulanceNumber("998")
+                    .fireNumber("997")
+                    .womenHelplineNumber("800 111")
+                    .childHelplineNumber("800 111")
+                    .touristHelpline("800 4438")
+                    .roadAssistance("999")
+                    .nearestHospitalName("Dubai / UAE Health Authority Hospital (Dial 998)")
+                    .nearestHospitalPhone("998")
+                    .nearestHospitalAddress("Nearest Hospital ER Center")
+                    .localPoliceStation("UAE Police (Dial 999)")
+                    .localPolicePhone("999")
+                    .dataSource("UAE Helplines (999/998/997)")
+                    .isFallback(false)
+                    .build();
+        }
+
+        // 5. Australia / New Zealand
+        if (destLower.contains("australia") || destLower.contains("sydney") || destLower.contains("melbourne") ||
+            destLower.contains("new zealand")) {
+            return EmergencyResponse.builder()
+                    .destination(req.getDestination())
+                    .state(req.getState())
+                    .nationalEmergency("000")
+                    .policeNumber("000")
+                    .ambulanceNumber("000")
+                    .fireNumber("000")
+                    .womenHelplineNumber("1800 737 732")
+                    .childHelplineNumber("1800 55 1800")
+                    .touristHelpline("131 450")
+                    .roadAssistance("13 11 11")
+                    .nearestHospitalName("Local Emergency Hospital (Dial 000)")
+                    .nearestHospitalPhone("000")
+                    .nearestHospitalAddress("Nearest Hospital ER")
+                    .localPoliceStation("Police Station (Dial 000)")
+                    .localPolicePhone("000")
+                    .dataSource("Australia Emergency Helpline (000)")
+                    .isFallback(false)
+                    .build();
+        }
+
+        // Default: India Helplines
         return EmergencyResponse.builder()
                 .destination(req.getDestination())
                 .state(req.getState())
@@ -267,7 +392,7 @@ public class EmergencyService {
                 .nearestHospitalAddress("Please search Google Maps for nearest hospital")
                 .localPoliceStation("Dial 100 for nearest police")
                 .localPolicePhone("100")
-                .dataSource("National helplines only")
+                .dataSource("India National Helplines (112/100/108)")
                 .isFallback(true)
                 .build();
     }

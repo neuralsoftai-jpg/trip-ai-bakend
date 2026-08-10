@@ -113,25 +113,18 @@ public class OsrmClient {
     }
 
     /**
-     * Returns [distanceMeters, durationSeconds] as a double array.
+     * Returns [distanceMeters, durationSeconds] as a double array using coordinates.
      * Index 0 = distance in meters
      * Index 1 = duration in seconds
      */
     @CircuitBreaker(name = "osrmClient", fallbackMethod = "getRouteFallback")
-    public double[] getRoute(String sourceCity, String destinationCity) {
+    public double[] getRoute(double srcLat, double srcLon, double dstLat, double dstLon) {
         try {
-            // Sanitize city names: remove non-ASCII chars (arrows, emojis, etc.) that corrupt geocoding
-            String cleanSource = sourceCity.replaceAll("[^\\x00-\\x7F]", "").trim();
-            String cleanDest = destinationCity.replaceAll("[^\\x00-\\x7F]", "").trim();
-            log.info("Fetching OSRM route: {} → {} (sanitized from: {} → {})",
-                    cleanSource, cleanDest, sourceCity, destinationCity);
-
-            double[] sourceCords = geocodeCity(cleanSource);
-            double[] destCords = geocodeCity(cleanDest);
+            log.info("Fetching OSRM route by coordinates: {},{} → {},{}", srcLat, srcLon, dstLat, dstLon);
 
             String path = String.format("/route/v1/driving/%f,%f;%f,%f?overview=false",
-                    sourceCords[1], sourceCords[0],   // lon, lat
-                    destCords[1], destCords[0]);
+                    srcLon, srcLat,   // lon, lat
+                    dstLon, dstLat);
 
             String response = restClient.get()
                     .uri(path)
@@ -139,45 +132,73 @@ public class OsrmClient {
                     .body(String.class);
 
             JsonNode root = objectMapper.readTree(response);
-            JsonNode route = root.get("routes").get(0);
+            
+            if (root.has("code") && "NoRoute".equals(root.get("code").asText())) {
+                throw new com.tripplanner.exception.RouteInfeasibleException("No overland route exists between these coordinates.");
+            }
+
+            JsonNode routes = root.get("routes");
+            if (routes == null || routes.isEmpty()) {
+                throw new com.tripplanner.exception.RouteInfeasibleException("No route found between coordinates.");
+            }
+
+            JsonNode route = routes.get(0);
 
             double distance = route.get("distance").asDouble();   // meters
             double duration = route.get("duration").asDouble();   // seconds
 
-            log.info("OSRM Success: {} → {} = {}km, {}s", cleanSource, cleanDest,
+            log.info("OSRM Success by coordinates: = {}km, {}s",
                     Math.round(distance / 100.0) / 10.0, (long) duration);
 
             return new double[]{distance, duration};
 
+        } catch (com.tripplanner.exception.RouteInfeasibleException e) {
+            throw e;
         } catch (Exception e) {
-            log.error("OSRM API error: {}", e.getMessage());
+            log.error("OSRM API coordinate error: {}", e.getMessage());
             throw new RuntimeException("OSRM routing failed: " + e.getMessage(), e);
         }
     }
 
     /**
-     * Dynamic Fallback when OSRM circuit is open or call fails.
-     * Calculates exact Haversine distance × 1.35x Indian road terrain factor.
+     * Legacy method for city names, delegates to coordinates-based routing
      */
+    public double[] getRoute(String sourceCity, String destinationCity) {
+        double[] src = geocodeCity(sourceCity);
+        double[] dst = geocodeCity(destinationCity);
+        return getRoute(src[0], src[1], dst[0], dst[1]);
+    }
+
+    /**
+     * Dynamic Fallback when OSRM circuit is open or call fails.
+     * Calculates exact Haversine distance × 1.35x Indian road factor.
+     */
+    public double[] getRouteFallback(double srcLat, double srcLon, double dstLat, double dstLon, Throwable t) {
+        if (t instanceof com.tripplanner.exception.RouteInfeasibleException) {
+            throw (com.tripplanner.exception.RouteInfeasibleException) t;
+        }
+        log.warn("OSRM routing fallback triggered. Cause: {}", t.getMessage());
+        double haversineKm = calculateHaversineKm(srcLat, srcLon, dstLat, dstLon);
+        // Indian road terrain factor (approx 1.35x driving distance vs straight line)
+        double roadDistanceMeters = haversineKm * 1.35 * 1000.0;
+        // Estimated average highway/terrain driving speed in India ~ 50 km/h
+        double durationSeconds = ((haversineKm * 1.35) / 50.0) * 3600.0;
+
+        log.info("Dynamic Haversine Fallback Route: = {} km, {} hrs",
+                Math.round(roadDistanceMeters / 1000.0), Math.round(durationSeconds / 3600.0));
+
+        return new double[]{roadDistanceMeters, durationSeconds};
+    }
+
     public double[] getRouteFallback(String sourceCity, String destinationCity, Throwable t) {
+        if (t instanceof com.tripplanner.exception.RouteInfeasibleException) {
+            throw (com.tripplanner.exception.RouteInfeasibleException) t;
+        }
         log.warn("OSRM routing fallback triggered for '{}' -> '{}'. Cause: {}", sourceCity, destinationCity, t.getMessage());
         try {
-            String cleanSource = sourceCity.replaceAll("[^\\x00-\\x7F]", "").trim();
-            String cleanDest = destinationCity.replaceAll("[^\\x00-\\x7F]", "").trim();
-
-            double[] srcCords = geocodeCity(cleanSource);
-            double[] dstCords = geocodeCity(cleanDest);
-
-            double haversineKm = calculateHaversineKm(srcCords[0], srcCords[1], dstCords[0], dstCords[1]);
-            // Indian road terrain factor (approx 1.35x driving distance vs straight line)
-            double roadDistanceMeters = haversineKm * 1.35 * 1000.0;
-            // Estimated average highway/terrain driving speed in India ~ 50 km/h
-            double durationSeconds = ((haversineKm * 1.35) / 50.0) * 3600.0;
-
-            log.info("Dynamic Haversine Fallback Route: {} -> {} = {} km, {} hrs",
-                    cleanSource, cleanDest, Math.round(roadDistanceMeters / 1000.0), Math.round(durationSeconds / 3600.0));
-
-            return new double[]{roadDistanceMeters, durationSeconds};
+            double[] srcCords = geocodeCity(sourceCity);
+            double[] dstCords = geocodeCity(destinationCity);
+            return getRouteFallback(srcCords[0], srcCords[1], dstCords[0], dstCords[1], t);
         } catch (Exception e) {
             log.error("Geocoding/Haversine fallback failed: {}", e.getMessage());
             return new double[]{500_000.0, 32_400.0};

@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -78,7 +79,8 @@ public class DashboardService {
         "diesel_car",    0.171,
         "electric_car",  0.053,
         "bike",          0.103,
-        "electric_bike", 0.022
+        "electric_bike", 0.022,
+        "flight",        0.255
     );
 
     // Explicit constructor required to use @Qualifier on the Executor parameter.
@@ -101,6 +103,9 @@ public class DashboardService {
     /**
      * Main orchestration method. Redis-first, then parallel external calls.
      */
+    /**
+     * Main orchestration method. Redis-first, then parallel external calls.
+     */
     public DashboardResponse getDashboard(TripRequest req) {
         // ── 1. CACHE CHECK ────────────────────────────────────────────
         String cacheKey = buildCacheKey(req);
@@ -117,60 +122,248 @@ public class DashboardService {
         }
         log.info("Cache MISS for key: {}", cacheKey);
 
-
         // ── 2. VALIDATE VEHICLE TYPE ─────────────────────────────────
         String vehicleType = req.getVehicleType().toLowerCase();
-        if (!MILEAGE_MAP.containsKey(vehicleType)) {
+        boolean isFlight = "flight".equals(vehicleType);
+        if (!isFlight && !MILEAGE_MAP.containsKey(vehicleType)) {
             throw new IllegalArgumentException(
                 "Invalid vehicle type: '" + req.getVehicleType() +
-                "'. Accepted: " + MILEAGE_MAP.keySet());
+                "'. Accepted: flight, " + MILEAGE_MAP.keySet());
         }
 
         // ── 3. FIRE CONCURRENT API CALLS ─────────────────────────────
-        //
-        // CF1: OSRM — road distance and ETA
-        CompletableFuture<double[]> routeFuture = CompletableFuture.supplyAsync(
-                () -> osrmClient.getRoute(req.getSource(), req.getDestination()),
-                tripExecutor
-        );
+        boolean routeFeasible = true;
+        String feasibilityReason = null;
+        double distanceKm = 0;
+        String travelTime = "N/A";
+        String travelTimeRaw = "0";
 
-        // CF2: OpenWeatherMap — day-by-day forecast
+        List<String> transportSources = new java.util.concurrent.CopyOnWriteArrayList<>();
+        
+        CompletableFuture<double[]> routeFuture = null;
+        CompletableFuture<String> flightFuture = null;
+        CompletableFuture<String> roadSpecificsFuture = null;
+        CompletableFuture<String> evSpecificsFuture = null;
+        CompletableFuture<String> bikeSpecificsFuture = null;
+
+        if (isFlight) {
+            // Direct flight routing
+            flightFuture = CompletableFuture.supplyAsync(
+                () -> geminiClient.getFlightsInfo(
+                        getLocationAddress(req.getSource()),
+                        getLocationAddress(req.getDestination()),
+                        req.getGroupSize(),
+                        transportSources
+                ),
+                tripExecutor
+            );
+        } else {
+            // Overland car/bike routing via OSRM coordinates
+            routeFuture = CompletableFuture.supplyAsync(
+                () -> osrmClient.getRoute(
+                        req.getSource().getLatitude(),
+                        req.getSource().getLongitude(),
+                        req.getDestination().getLatitude(),
+                        req.getDestination().getLongitude()
+                ),
+                tripExecutor
+            );
+
+            if ("petrol_car".equals(vehicleType) || "diesel_car".equals(vehicleType)) {
+                roadSpecificsFuture = CompletableFuture.supplyAsync(
+                    () -> geminiClient.getRoadTripSpecifics(
+                            getLocationAddress(req.getSource()),
+                            getLocationAddress(req.getDestination()),
+                            vehicleType,
+                            transportSources
+                    ),
+                    tripExecutor
+                );
+            } else if ("electric_car".equals(vehicleType)) {
+                evSpecificsFuture = CompletableFuture.supplyAsync(
+                    () -> geminiClient.getEvInfo(
+                            getLocationAddress(req.getSource()),
+                            getLocationAddress(req.getDestination()),
+                            transportSources
+                    ),
+                    tripExecutor
+                );
+            } else if ("bike".equals(vehicleType) || "electric_bike".equals(vehicleType)) {
+                bikeSpecificsFuture = CompletableFuture.supplyAsync(
+                    () -> geminiClient.getBikeSpecifics(
+                            getLocationAddress(req.getSource()),
+                            getLocationAddress(req.getDestination()),
+                            vehicleType,
+                            transportSources
+                    ),
+                    tripExecutor
+                );
+            }
+        }
+
+        // OpenWeatherMap Forecast (using Destination City)
+        String destCity = req.getDestination().getCity();
+        if (destCity == null || destCity.isBlank()) {
+            destCity = req.getDestination().getName();
+        }
+        final String finalDestCity = destCity;
         CompletableFuture<List<WeatherInfo>> weatherFuture = CompletableFuture.supplyAsync(
-                () -> weatherClient.getForecast(req.getDestination(), req.getDays()),
+                () -> weatherClient.getForecast(finalDestCity, req.getDays()),
                 tripExecutor
         );
 
-        // CF3: Gemini — local vibe, festivals, tips
+        // Gemini local Vibe Check
         CompletableFuture<String> vibeFuture = CompletableFuture.supplyAsync(
-                () -> geminiClient.getVibeRaw(req.getDestination()),
+                () -> geminiClient.getVibeRaw(getLocationAddress(req.getDestination())),
                 tripExecutor
         );
 
-        // ── 4. WAIT FOR ALL FUTURES ───────────────────────────────────
-        CompletableFuture.allOf(routeFuture, weatherFuture, vibeFuture).join();
+        // Gather all running futures
+        List<CompletableFuture<?>> futuresList = new ArrayList<>();
+        futuresList.add(weatherFuture);
+        futuresList.add(vibeFuture);
+        if (routeFuture != null) futuresList.add(routeFuture);
+        if (flightFuture != null) futuresList.add(flightFuture);
+        if (roadSpecificsFuture != null) futuresList.add(roadSpecificsFuture);
+        if (evSpecificsFuture != null) futuresList.add(evSpecificsFuture);
+        if (bikeSpecificsFuture != null) futuresList.add(bikeSpecificsFuture);
 
-        // ── 5. EXTRACT RESULTS ────────────────────────────────────────
-        double[] routeData = routeFuture.join();
-        double distanceMeters = routeData[0];
-        double durationSeconds = routeData[1];
-        double distanceKm = Math.round((distanceMeters / 1000.0) * 10.0) / 10.0;
+        // Wait for all requests to finish
+        try {
+            CompletableFuture.allOf(futuresList.toArray(new CompletableFuture[0])).join();
+        } catch (Exception e) {
+            log.warn("One or more background tasks failed to execute cleanly: {}", e.getMessage());
+        }
 
+        // ── 4. EXTRACT ROUTE DATA ─────────────────────────────────────
+        if (routeFuture != null) {
+            try {
+                double[] routeData = routeFuture.join();
+                double distanceMeters = routeData[0];
+                double durationSeconds = routeData[1];
+                distanceKm = Math.round((distanceMeters / 1000.0) * 10.0) / 10.0;
+                travelTime = OsrmClient.formatDuration(durationSeconds);
+                travelTimeRaw = String.valueOf((long) durationSeconds);
+
+                // Overland distance check (> 1200 km or cross-sea is impractical for driving)
+                if (distanceKm > 1200) {
+                    log.warn("Distance {} km exceeds overland driving limit (1200 km). Marking route as infeasible.", distanceKm);
+                    routeFeasible = false;
+                    feasibilityReason = String.format("Overland car/bike travel is not practical for this distance (%.0f km). Flight travel is strongly recommended.", distanceKm);
+                }
+            } catch (Exception e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof com.tripplanner.exception.RouteInfeasibleException) {
+                    log.warn("Overland route infeasible between points: {}", cause.getMessage());
+                    routeFeasible = false;
+                    feasibilityReason = "Overland car travel is not feasible for this route. We recommend travelling by flight.";
+                } else {
+                    log.error("OSRM coordinate routing failed: {}", e.getMessage());
+                    routeFeasible = false;
+                    feasibilityReason = "Overland routing service unavailable right now. Recommended mode: Flight.";
+                }
+            }
+        }
+
+        // ── 5. EXTRACT FLIGHT INFO ────────────────────────────────────
+        FlightInfo flightInfo = null;
+        if (isFlight || !routeFeasible) {
+            String flightJson = null;
+            if (isFlight && flightFuture != null) {
+                flightJson = flightFuture.join();
+            } else {
+                // If road trip is infeasible, search for flight fallback
+                log.info("Searching flight recommendation since road route is infeasible...");
+                try {
+                    flightJson = geminiClient.getFlightsInfo(
+                            getLocationAddress(req.getSource()),
+                            getLocationAddress(req.getDestination()),
+                            req.getGroupSize(),
+                            transportSources
+                    );
+                } catch (Exception ex) {
+                    log.error("Flight recommendation fallback search failed: {}", ex.getMessage());
+                }
+            }
+            if (flightJson != null) {
+                flightInfo = parseFlightResponse(flightJson, new ArrayList<>(transportSources));
+            }
+            
+            // Set air distance using direct Haversine calculations
+            distanceKm = Math.round(calculateHaversineKm(
+                    req.getSource().getLatitude(), req.getSource().getLongitude(),
+                    req.getDestination().getLatitude(), req.getDestination().getLongitude()
+            ) * 10.0) / 10.0;
+
+            if (flightInfo != null && flightInfo.getFlights() != null && !flightInfo.getFlights().isEmpty()) {
+                travelTime = flightInfo.getFlights().get(0).getDuration();
+                travelTimeRaw = "7200"; // approximate default seconds
+            }
+        }
+
+        // ── 6. EXTRACT WEATHER & VIBE ─────────────────────────────────
         List<WeatherInfo> weather = weatherFuture.join();
-
-        VibeInfo vibe = parseVibeResponse(vibeFuture.join(), req.getDestination());
-
-        // ── 6. FUEL CALCULATION (Pure Math — Synchronous) ────────────
-        FuelSplit fuelSplit = calculateFuelSplit(distanceKm, vehicleType, req.getGroupSize());
-
-        // ── 7. WEATHER SUMMARY ────────────────────────────────────────
+        VibeInfo vibe = parseVibeResponse(vibeFuture.join(), getLocationAddress(req.getDestination()));
         String weatherSummary = buildWeatherSummary(weather);
+
+        // ── 7. EXTRACT TRANSPORT SPECIFICS ────────────────────────────
+        FuelSplit fuelSplit = null;
+        EvInfo evInfo = null;
+        RoadTripInfo roadTripInfo = null;
+        BikeInfo bikeInfo = null;
+
+        if (isFlight || !routeFeasible) {
+            fuelSplit = FuelSplit.builder()
+                    .totalDistanceKm(distanceKm)
+                    .fuelPricePerLitre(0)
+                    .vehicleMileageKmpl(0)
+                    .litresRequired(0)
+                    .totalFuelCostInr(0)
+                    .perPersonCostInr(0)
+                    .groupSize(req.getGroupSize())
+                    .vehicleType("flight")
+                    .electricVehicle(false)
+                    .note("Flight mode — N/A for car fuel.")
+                    .build();
+        } else {
+            if ("petrol_car".equals(vehicleType) || "diesel_car".equals(vehicleType)) {
+                fuelSplit = calculateFuelSplit(distanceKm, vehicleType, req.getGroupSize());
+                if (roadSpecificsFuture != null) {
+                    roadTripInfo = parseRoadTripResponse(roadSpecificsFuture.join(), new ArrayList<>(transportSources));
+                }
+            } else if ("electric_car".equals(vehicleType)) {
+                fuelSplit = calculateFuelSplit(distanceKm, vehicleType, req.getGroupSize());
+                if (evSpecificsFuture != null) {
+                    evInfo = parseEvResponse(evSpecificsFuture.join(), new ArrayList<>(transportSources));
+                    if (evInfo != null) {
+                        fuelSplit.setPerPersonCostInr(Math.round((evInfo.getTotalChargingCostInr() / req.getGroupSize()) * 100.0) / 100.0);
+                        fuelSplit.setTotalFuelCostInr(evInfo.getTotalChargingCostInr());
+                    }
+                }
+            } else if ("bike".equals(vehicleType) || "electric_bike".equals(vehicleType)) {
+                fuelSplit = calculateFuelSplit(distanceKm, vehicleType, req.getGroupSize());
+                if (bikeSpecificsFuture != null) {
+                    bikeInfo = parseBikeResponse(bikeSpecificsFuture.join(), new ArrayList<>(transportSources));
+                    if (bikeInfo != null && "electric_bike".equals(vehicleType)) {
+                        fuelSplit.setPerPersonCostInr(Math.round((bikeInfo.getFuelCostEstimateInr() / req.getGroupSize()) * 100.0) / 100.0);
+                        fuelSplit.setTotalFuelCostInr(bikeInfo.getFuelCostEstimateInr());
+                    }
+                }
+            }
+        }
 
         // ── 8. ASSEMBLE RESPONSE ──────────────────────────────────────
         DashboardResponse response = DashboardResponse.builder()
                 .distanceKm(distanceKm)
-                .travelTime(OsrmClient.formatDuration(durationSeconds))
-                .travelTimeRaw(String.valueOf((long) durationSeconds))
+                .travelTime(travelTime)
+                .travelTimeRaw(travelTimeRaw)
+                .routeFeasible(routeFeasible)
+                .feasibilityReason(feasibilityReason)
                 .fuelSplit(fuelSplit)
+                .flightInfo(flightInfo)
+                .evInfo(evInfo)
+                .roadTripInfo(roadTripInfo)
+                .bikeInfo(bikeInfo)
                 .weatherForecast(weather)
                 .overallWeatherSummary(weatherSummary)
                 .localVibe(vibe)
@@ -197,6 +390,7 @@ public class DashboardService {
     // ─────────────────────────────────────────────────────────────────
     // FUEL CALCULATOR
     // ─────────────────────────────────────────────────────────────────
+
 
     /**
      * Formula:
@@ -311,12 +505,191 @@ public class DashboardService {
         return String.format("Avg. high: %.0f°C%s", avgMax, rainNote);
     }
 
+    private FlightInfo parseFlightResponse(String rawJson, List<String> sources) {
+        try {
+            JsonNode node = objectMapper.readTree(rawJson);
+            
+            JsonNode depNode = node.get("departureAirport");
+            FlightInfo.AirportDetail departureAirport = depNode == null ? null : objectMapper.convertValue(depNode, FlightInfo.AirportDetail.class);
+            
+            JsonNode arrNode = node.get("arrivalAirport");
+            FlightInfo.AirportDetail arrivalAirport = arrNode == null ? null : objectMapper.convertValue(arrNode, FlightInfo.AirportDetail.class);
+            
+            List<FlightInfo.AirportDetail> alternativeAirports = new ArrayList<>();
+            if (node.has("alternativeAirports") && node.get("alternativeAirports").isArray()) {
+                for (JsonNode alt : node.get("alternativeAirports")) {
+                    alternativeAirports.add(objectMapper.convertValue(alt, FlightInfo.AirportDetail.class));
+                }
+            }
+            
+            List<FlightInfo.FlightDetail> flights = new ArrayList<>();
+            if (node.has("flights") && node.get("flights").isArray()) {
+                for (JsonNode fl : node.get("flights")) {
+                    flights.add(objectMapper.convertValue(fl, FlightInfo.FlightDetail.class));
+                }
+            }
+            
+            List<FlightInfo.TransferOption> airportTransfers = new ArrayList<>();
+            if (node.has("airportTransfers") && node.get("airportTransfers").isArray()) {
+                for (JsonNode tr : node.get("airportTransfers")) {
+                    airportTransfers.add(objectMapper.convertValue(tr, FlightInfo.TransferOption.class));
+                }
+            }
+            
+            return FlightInfo.builder()
+                    .departureAirport(departureAirport)
+                    .arrivalAirport(arrivalAirport)
+                    .alternativeAirports(alternativeAirports)
+                    .flights(flights)
+                    .airportTransfers(airportTransfers)
+                    .verifiedSources(sources)
+                    .build();
+        } catch (Exception e) {
+            log.error("Failed to parse flight json: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private EvInfo parseEvResponse(String rawJson, List<String> sources) {
+        try {
+            JsonNode node = objectMapper.readTree(rawJson);
+            List<EvInfo.ChargingStation> stations = new ArrayList<>();
+            if (node.has("chargingStations") && node.get("chargingStations").isArray()) {
+                for (JsonNode st : node.get("chargingStations")) {
+                    stations.add(objectMapper.convertValue(st, EvInfo.ChargingStation.class));
+                }
+            }
+            List<EvInfo.ChargingStop> stops = new ArrayList<>();
+            if (node.has("chargingStops") && node.get("chargingStops").isArray()) {
+                for (JsonNode stop : node.get("chargingStops")) {
+                    stops.add(objectMapper.convertValue(stop, EvInfo.ChargingStop.class));
+                }
+            }
+            List<String> tips = new ArrayList<>();
+            if (node.has("tips") && node.get("tips").isArray()) {
+                for (JsonNode tip : node.get("tips")) {
+                    tips.add(tip.asText());
+                }
+            }
+            return EvInfo.builder()
+                    .chargingStations(stations)
+                    .chargingStops(stops)
+                    .totalChargingCostInr(node.path("totalChargingCostInr").asDouble(0))
+                    .estimatedRangeKm(node.path("estimatedRangeKm").asDouble(320))
+                    .tips(tips)
+                    .verifiedSources(sources)
+                    .build();
+        } catch (Exception e) {
+            log.error("Failed to parse EV json: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private RoadTripInfo parseRoadTripResponse(String rawJson, List<String> sources) {
+        try {
+            JsonNode node = objectMapper.readTree(rawJson);
+            List<String> stops = new ArrayList<>();
+            if (node.has("fuelStops") && node.get("fuelStops").isArray()) {
+                for (JsonNode stop : node.get("fuelStops")) {
+                    stops.add(stop.asText());
+                }
+            }
+            List<String> tips = new ArrayList<>();
+            if (node.has("tips") && node.get("tips").isArray()) {
+                for (JsonNode tip : node.get("tips")) {
+                    tips.add(tip.asText());
+                }
+            }
+            return RoadTripInfo.builder()
+                    .drivingRouteDescription(node.path("drivingRouteDescription").asText(""))
+                    .fuelStops(stops)
+                    .tollsEstimateInr(node.path("tollsEstimateInr").asDouble(0))
+                    .parkingInfo(node.path("parkingInfo").asText(""))
+                    .tips(tips)
+                    .verifiedSources(sources)
+                    .build();
+        } catch (Exception e) {
+            log.error("Failed to parse road trip json: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private BikeInfo parseBikeResponse(String rawJson, List<String> sources) {
+        try {
+            JsonNode node = objectMapper.readTree(rawJson);
+            List<String> stops = new ArrayList<>();
+            if (node.has("restStops") && node.get("restStops").isArray()) {
+                for (JsonNode stop : node.get("restStops")) {
+                    stops.add(stop.asText());
+                }
+            }
+            List<String> places = new ArrayList<>();
+            if (node.has("bikeFriendlyPlaces") && node.get("bikeFriendlyPlaces").isArray()) {
+                for (JsonNode place : node.get("bikeFriendlyPlaces")) {
+                    places.add(place.asText());
+                }
+            }
+            List<String> tips = new ArrayList<>();
+            if (node.has("tips") && node.get("tips").isArray()) {
+                for (JsonNode tip : node.get("tips")) {
+                    tips.add(tip.asText());
+                }
+            }
+            return BikeInfo.builder()
+                    .ridingRouteDescription(node.path("ridingRouteDescription").asText(""))
+                    .fuelCostEstimateInr(node.path("fuelCostEstimateInr").asDouble(0))
+                    .restStops(stops)
+                    .bikeFriendlyPlaces(places)
+                    .tips(tips)
+                    .verifiedSources(sources)
+                    .build();
+        } catch (Exception e) {
+            log.error("Failed to parse bike json: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private double calculateHaversineKm(double lat1, double lon1, double lat2, double lon2) {
+        final double R = 6371.0; // Earth radius in km
+        double dLat = Math.toRadians(lat2 - lat1);
+        double dLon = Math.toRadians(lon2 - lon1);
+        double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
+                * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1.0 - a));
+        return R * c;
+    }
+
+    private String getLocationAddress(com.tripplanner.dto.ResolvedLocation loc) {
+        if (loc == null) return "Unknown";
+        if (loc.getFormattedAddress() != null && !loc.getFormattedAddress().isBlank()) {
+            return loc.getFormattedAddress();
+        }
+        if (loc.getName() != null && !loc.getName().isBlank()) {
+            return loc.getName();
+        }
+        if (loc.getCity() != null && !loc.getCity().isBlank()) {
+            return loc.getCity();
+        }
+        return "Unknown";
+    }
+
+    private String getLocationKey(com.tripplanner.dto.ResolvedLocation loc) {
+        if (loc == null) return "unknown";
+        if (loc.getPlaceId() != null && !loc.getPlaceId().isBlank()) {
+            return loc.getPlaceId();
+        }
+        String addr = getLocationAddress(loc);
+        return addr.toLowerCase().replaceAll("[^a-z0-9]", "_");
+    }
+
     private String buildCacheKey(TripRequest req) {
         return String.format("dashboard:%s:%s:%d:%d:%s",
-                req.getSource().toLowerCase().replace(" ", "_"),
-                req.getDestination().toLowerCase().replace(" ", "_"),
+                getLocationKey(req.getSource()),
+                getLocationKey(req.getDestination()),
                 req.getDays(),
                 req.getGroupSize(),
                 req.getVehicleType().toLowerCase());
     }
+
 }

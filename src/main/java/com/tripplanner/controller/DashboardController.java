@@ -59,7 +59,7 @@ public class DashboardController {
             @Valid @RequestBody TripRequest request) {
 
         log.info("Dashboard request: {} → {}, {} days, {} people, {}",
-                request.getSource(), request.getDestination(),
+                request.getSource().getFormattedAddress(), request.getDestination().getFormattedAddress(),
                 request.getDays(), request.getGroupSize(), request.getVehicleType());
 
         DashboardResponse response = dashboardService.getDashboard(request);

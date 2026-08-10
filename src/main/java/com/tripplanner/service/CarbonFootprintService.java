@@ -50,7 +50,8 @@ public class CarbonFootprintService {
         "diesel_car",    0.171,
         "electric_car",  0.053,
         "bike",          0.103,
-        "electric_bike", 0.022
+        "electric_bike", 0.022,
+        "flight",        0.255
     );
 
     @Value("${cache.ttl.carbon:21600}")

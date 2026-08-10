@@ -81,7 +81,7 @@ public class RateLimitConfig extends OncePerRequestFilter {
 
         // Skip rate limiting for actuator/health endpoints
         String path = request.getRequestURI();
-        if (path.startsWith("/actuator") || path.equals("/")) {
+        if (path.startsWith("/actuator") || path.equals("/") || path.equals("/health")) {
             filterChain.doFilter(request, response);
             return;
         }
