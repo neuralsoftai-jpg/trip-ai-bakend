@@ -244,23 +244,19 @@ public class DashboardService {
                 distanceKm = Math.round((distanceMeters / 1000.0) * 10.0) / 10.0;
                 travelTime = OsrmClient.formatDuration(durationSeconds);
                 travelTimeRaw = String.valueOf((long) durationSeconds);
-
-                // Overland distance check (> 1200 km or cross-sea is impractical for driving)
-                if (distanceKm > 1200) {
-                    log.warn("Distance {} km exceeds overland driving limit (1200 km). Marking route as infeasible.", distanceKm);
-                    routeFeasible = false;
-                    feasibilityReason = String.format("Overland car/bike travel is not practical for this distance (%.0f km). Flight travel is strongly recommended.", distanceKm);
-                }
             } catch (Exception e) {
                 Throwable cause = e.getCause();
                 if (cause instanceof com.tripplanner.exception.RouteInfeasibleException) {
                     log.warn("Overland route infeasible between points: {}", cause.getMessage());
                     routeFeasible = false;
-                    feasibilityReason = "Overland car travel is not feasible for this route. We recommend travelling by flight.";
+                    feasibilityReason = "Overland road travel is not feasible for this route (e.g. cross-ocean / intercontinental). Recommending flight.";
                 } else {
                     log.error("OSRM coordinate routing failed: {}", e.getMessage());
-                    routeFeasible = false;
-                    feasibilityReason = "Overland routing service unavailable right now. Recommended mode: Flight.";
+                    // Keep route feasible for domestic distances if fallback returned data
+                    if (distanceKm > 3500) {
+                        routeFeasible = false;
+                        feasibilityReason = "Overland routing service unavailable for this intercontinental route. Recommended mode: Flight.";
+                    }
                 }
             }
         }

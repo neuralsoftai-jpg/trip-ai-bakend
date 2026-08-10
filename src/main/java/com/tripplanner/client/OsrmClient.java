@@ -179,6 +179,13 @@ public class OsrmClient {
         }
         log.warn("OSRM routing fallback triggered. Cause: {}", t.getMessage());
         double haversineKm = calculateHaversineKm(srcLat, srcLon, dstLat, dstLon);
+
+        // Cross-ocean / intercontinental check (> 3500 km straight line is impossible for driving)
+        if (haversineKm > 3500) {
+            log.warn("Straight-line distance {} km exceeds 3500 km. Overland road travel across ocean is impossible.", haversineKm);
+            throw new com.tripplanner.exception.RouteInfeasibleException("Intercontinental/cross-ocean route (" + Math.round(haversineKm) + " km). Overland driving is not possible.");
+        }
+
         // Indian road terrain factor (approx 1.35x driving distance vs straight line)
         double roadDistanceMeters = haversineKm * 1.35 * 1000.0;
         // Estimated average highway/terrain driving speed in India ~ 50 km/h
