@@ -66,7 +66,7 @@ public class GeminiClient {
     @CircuitBreaker(name = "geminiClient", fallbackMethod = "getVibeFallback")
     public String getVibeRaw(String destination) {
         String prompt = """
-            You are a local India & international travel expert. For the city/destination: "%s"
+            You are a local India & international travel expert. For the city/destination: "{DEST}"
             
             Provide real, location-specific travel information. Do NOT fabricate businesses or addresses.
             REQUIREMENTS FOR QUANTITIES:
@@ -74,9 +74,10 @@ public class GeminiClient {
             - "hotelPlaces": Must contain AT LEAST 4 top recommended hotels, resorts, or stays.
             - "activityPlaces": Must contain AT LEAST 4 top local activities and experiences.
             - "marketsInfo": Must contain AT LEAST 4 top shopping markets, bazaars, or shopping spots.
-            - "languageInfo.phrases": Must contain EXACTLY 5 to 7 essential local phrases/words with English translation, pronunciation, meaning, and whenToUse.
+            - "tipsInfo": Must contain AT LEAST 4 to 5 smart travel tips (with icon, tip, category, color).
+            - "rulesInfo": Must contain AT LEAST 4 to 5 local rules, etiquette guidelines, and customs (with title, desc, type, icon, source).
+            - "languageInfo": "name" MUST be the authentic local language spoken in "{DEST}" (e.g. Hindi/Rajasthani for Jaipur, French for Paris, Japanese for Tokyo, Spanish for Barcelona, Italian for Rome, Kannada for Bangalore, Tamil for Chennai, etc.). "phrases" MUST contain EXACTLY 5 to 7 authentic local language words/phrases spoken in "{DEST}" with English translation, pronunciation, meaning, and whenToUse.
             - "ongoingFestivals": Must contain at least 3 distinct local festivals or cultural events.
-            - "rulesInfo": Must contain at least 4 to 6 local rules, etiquette guidelines, and customs.
             - "placesDetail": Must contain at least 4 top places/landmarks to visit with full details.
 
             Respond with ONLY a valid JSON object (no markdown, no explanation) in this exact format:
@@ -202,9 +203,8 @@ public class GeminiClient {
                 }
               ]
             }
-            """.formatted(destination);
-
-        return callGemini(prompt, 2500);
+            """;
+        return callGemini(prompt.replace("{DEST}", destination), 4096);
     }
 
     /**
@@ -602,6 +602,27 @@ public class GeminiClient {
                   "type": "info",
                   "icon": "📞",
                   "source": "Travel Safety Bureau"
+                },
+                {
+                  "title": "Follow Local Tipping & Bargaining Etiquette",
+                  "desc": "Bargain politely in street markets; tipping is optional but appreciated for good service.",
+                  "type": "info",
+                  "icon": "💡",
+                  "source": "Cultural Etiquette Guide"
+                },
+                {
+                  "title": "Photography & Drone Regulations",
+                  "desc": "Always ask permission before photographing individuals, private property, or security installations.",
+                  "type": "warning",
+                  "icon": "📸",
+                  "source": "Civic Administration"
+                },
+                {
+                  "title": "Littering & Environmental Hygiene",
+                  "desc": "Dispose of garbage in designated recycling bins to keep heritage zones clean.",
+                  "type": "info",
+                  "icon": "♻️",
+                  "source": "Municipal Environment Bureau"
                 }
               ],
               "placesDetail": [
@@ -682,6 +703,24 @@ public class GeminiClient {
                   "tip": "Use verified ride-hailing apps or official cabs for reliable city transport.",
                   "category": "Transport",
                   "color": "green"
+                },
+                {
+                  "icon": "💧",
+                  "tip": "Stay hydrated and carry sealed bottled drinking water while exploring outdoor sites.",
+                  "category": "Health",
+                  "color": "teal"
+                },
+                {
+                  "icon": "📄",
+                  "tip": "Store digital back-up copies of your passport, ID, and travel insurance on your phone.",
+                  "category": "Safety",
+                  "color": "amber"
+                },
+                {
+                  "icon": "🏛️",
+                  "tip": "Check opening hours and weekly closing days for museums and palaces in advance.",
+                  "category": "Sightseeing",
+                  "color": "purple"
                 }
               ]
             }
